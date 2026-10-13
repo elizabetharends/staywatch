@@ -1,0 +1,15 @@
+# StayWatch settings. Environment variables named STAYWATCH_<SECTION>_<KEY> override these.
+
+[paths]
+inbox = "inbox"
+generator_log = "generator_log.csv"
+
+[generator]
+interval_seconds = 60      # one import per minute
+demo_minutes = 30          # default run length when --minutes is not given
+records_min = 5
+records_max = 10
+anomaly_rate = 0.10        # about one import in ten is a seeded spike or drop
+resend_rate = 0.05         # chance of also writing a renamed copy of an earlier file
+duplicate_row_rate = 0.20  # chance an import repeats one of its own rows
+injection_rate = 0.03      # chance a record's guest message tries to give instructions

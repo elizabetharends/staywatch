@@ -1,0 +1,19 @@
+[project]
+name = "staywatch"
+version = "0.1.0"
+description = "StayWatch: a governed data agent for short-term rental bookings (simulated data)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest==8.4.2",
+]

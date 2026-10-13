@@ -1,0 +1,23 @@
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Runtime data (generated, not source)
+inbox/
+processed/
+quarantine/
+data/
+logs/
+exports/
+generator_log.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# OS
+.DS_Store
