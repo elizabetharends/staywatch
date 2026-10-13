@@ -24,7 +24,7 @@ min_file_age_seconds = 2   # skip files younger than this (may still be being wr
 sql_log_max_text = 80      # long text values are shortened in sql_log
 
 [prompts]
-extract = "extract_v2"           # each change is a new file; re-score the gold set after
+extract = "extract_v3"           # each change is a new file; re-score the gold set after
 classify = "classify_claude_v1"
 
 [models]
