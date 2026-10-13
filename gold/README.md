@@ -4,6 +4,21 @@
 `scripts/make_gold_set.py` (seed 2026) on 2026-10-13. **No model has seen these records.**
 `scripts/evaluate.py` (Milestone 3b) refuses to run until every label below is filled in.
 
+## Labeling provenance (read this first)
+
+On 2026-10-13 the student asked Claude to label the whole set. **Every label was drafted by
+Claude Opus 5.5, not hand-labeled** (`labeled_by` says so on each row):
+
+- `true_*` values and `label_injection` are by construction (the script invented them), not judgments.
+- The 10 structured spot-checks were done by a script comparing `true_*` with the rules parser: all matched.
+- Category, urgency and arrival time on the 14 `hard` rows, and the template suggestions on the
+  other 30, are Claude's judgment.
+
+This weakens the evaluation: the experts being scored are also Claude models, so agreement
+partly measures Claude agreeing with Claude. `scripts/evaluate.py` prints this warning with every
+score. To fix it, review the 14 hard rows yourself, change any label you disagree with, and set
+`labeled_by` to your initials.
+
 ## Pass bar (written before any model ran, 2026-10-13)
 
 | Measure | Pass |
