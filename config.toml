@@ -3,6 +3,10 @@
 [paths]
 inbox = "inbox"
 generator_log = "generator_log.csv"
+processed = "processed"
+quarantine = "quarantine"
+sqlite = "data/analytics.sqlite"
+tinydb = "data/raw.json"
 
 [generator]
 interval_seconds = 60      # one import per minute
@@ -13,3 +17,8 @@ anomaly_rate = 0.10        # about one import in ten is a seeded spike or drop
 resend_rate = 0.05         # chance of also writing a renamed copy of an earlier file
 duplicate_row_rate = 0.20  # chance an import repeats one of its own rows
 injection_rate = 0.03      # chance a record's guest message tries to give instructions
+
+[agent]
+scan_seconds = 15          # how often the loop checks inbox/
+min_file_age_seconds = 2   # skip files younger than this (may still be being written)
+sql_log_max_text = 80      # long text values are shortened in sql_log

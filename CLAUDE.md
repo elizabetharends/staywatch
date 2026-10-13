@@ -22,8 +22,8 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 | # | Milestone | Done when | Status |
 |---|---|---|---|
 | 1 | Repo, environment, data generator (one import per minute) | A new file lands every minute and its name is logged | **Done 2026-10-13** |
-| 2 | ETL loop: detect, hash, land in TinyDB, run log, SQL logging | A duplicate file is skipped and shown in the log | **Next** |
-| 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | Not started |
+| 2 | ETL loop: detect, hash, land in TinyDB, run log, SQL logging | A duplicate file is skipped and shown in the log | **Done 2026-10-13** |
+| 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | **Next** |
 | 4 | Clean into SQLite, statistics, forecast, trigger and action | The trigger fires on a seeded anomaly in a test | Not started |
 | 5 | Streamlit dashboard: live flow chart, step panels with SQL and formulas, MoE view | An import is held and released on screen with its file name, SQL and formula | Not started |
 | 6 | Cloud: GitHub Actions pipeline, data branch, Streamlit Community Cloud, Claude Routine | The public app updates every minute during a demo run | Not started |
@@ -34,6 +34,14 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - uv 0.13 installed at `~/.local/bin/uv` (run `source $HOME/.local/bin/env` or restart the shell so `uv` is on PATH). Python 3.12.15 via uv, pinned in `.python-version`. Docker not installed (needed for local Compose, optional).
 - Run tests: `uv run pytest -q`. Run generator: `uv run python -m generator.generate --minutes 3` (`--interval 0 --seed 42` for instant, repeatable runs).
 - Settings: `config.toml`, overridable by `STAYWATCH_<SECTION>_<KEY>` env vars; loaded by `agent/settings.py`.
+
+## Agent facts (Milestone 2)
+
+- Run: `uv run python -m agent.run` (loop, scans every 15 s), `--minutes N`, or `--once` (for GitHub Actions). Watch logs: `uv run python scripts/show_log.py`.
+- Packages: tinydb 4.9.0, apscheduler 3.11.3 (BackgroundScheduler; stopping it from inside its own job crashed, so main thread waits and shuts it down).
+- `agent/db.py`: `Database` creates all six log tables in `data/analytics.sqlite` (WAL). `run_sql(step, sql, params)` is the only SQL path and logs to `sql_log`; log-table writes go through `_write_log` and are not logged. `db.run_id` / `db.file_name` are set per file.
+- `agent/etl.py`: `scan_inbox()` → per file `detect()` (SHA-256; duplicate = hash already has a `land`/`ok` row → status `warning`, message `skipped: duplicate of X`, moved to `processed/duplicates/`) → `land()` (raw records into TinyDB table `raw_bookings` in `data/raw.json` with run_id, file_name, file_sha256, row_number; file to `processed/`; parse failure → `quarantine/` + `incident_log` kind `failure`). Milestone 3 hooks in after `land()`.
+- Files younger than `min_file_age_seconds` (2) are left for the next scan.
 
 ## Generator facts (needed by later milestones)
 
@@ -48,4 +56,5 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 ## Session log
 
 - 2026-10-13: Step 1 answers collected, CLAUDE.md created.
-- 2026-10-13: Milestone 1 done. 7 generator tests pass; 3-minute demo run wrote 3 files. Next: plan Milestone 2 (read `references/requirements.md`, ETL section).
+- 2026-10-13: Milestone 1 done. 7 generator tests pass; 3-minute demo run wrote 3 files. 
+- 2026-10-13: Milestone 2 done. 14 tests pass. Demo: renamed copy `staywatch_20261013-2243_resend.csv` skipped as duplicate of `staywatch_20261013-2243.csv`; live loop picked up files within 15 s. Next: plan Milestone 3 (read `references/models-moe.md`; student needs class Console API key in `.env`).
