@@ -25,7 +25,7 @@ sql_log_max_text = 80      # long text values are shortened in sql_log
 
 [prompts]
 extract = "extract_v3"           # each change is a new file; re-score the gold set after
-classify = "classify_claude_v1"
+classify = "classify_claude_v1"   # v2 scored 88.6% but regressed on standard messages; see CLAUDE.md
 
 [models]
 kill_switch = false        # true = no model calls at all; rules clean everything
