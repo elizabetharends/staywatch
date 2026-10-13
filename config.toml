@@ -25,6 +25,7 @@ sql_log_max_text = 80      # long text values are shortened in sql_log
 
 [prompts]
 extract = "extract_v3"           # each change is a new file; re-score the gold set after
+explain = "explain_v1"
 classify = "classify_claude_v1"   # v2 scored 88.6% but regressed on standard messages; see CLAUDE.md
 
 [models]
@@ -37,6 +38,7 @@ escalation = "claude-sonnet-5-5"
 review_confidence = 0.6    # category confidence below this goes to the review queue
 extract_max_tokens = 2048
 classify_max_tokens = 1024
+explain_max_tokens = 1024
 
 [models.effort]
 "claude-haiku-5-5" = "low"
@@ -55,6 +57,11 @@ output = 10.00
 [models.prices."claude-haiku-4-5"]
 input = 1.00
 output = 5.00
+
+[decide]
+rule = "anomaly"         # z-score of bookings per import
+z_threshold = 3.0
+history_imports = 60     # baseline = last N published or released imports
 
 [budget]
 max_tokens_per_run = 60000     # per import file

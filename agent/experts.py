@@ -43,7 +43,9 @@ class ModelRunner:
         self.claude = claude or ClaudeClient(settings)
         self.extract_prompt = settings["prompts"]["extract"]
         self.classify_prompt = settings["prompts"]["classify"]
-        self.prompts = {name: _load_prompt(name) for name in (self.extract_prompt, self.classify_prompt)}
+        self.explain_prompt = settings["prompts"]["explain"]
+        self.prompts = {name: _load_prompt(name)
+                        for name in (self.extract_prompt, self.classify_prompt, self.explain_prompt)}
         self.run_tokens = 0
         self.daily_tokens = None
         self.budget_incident_open = False
@@ -214,3 +216,34 @@ class ModelRunner:
             return None, "rules", f"quarantined: {str(err).splitlines()[0][:120]}"
         self._log_rules("extract", "extract", r.reason, 1.0, pii)
         return fields, "rules", "valid"
+
+    # ---------- explain (only when the trigger fires) ----------
+
+    def explain(self, facts: dict) -> tuple[str, str]:
+        """Returns (plain-English explanation of a held import, expert that wrote it)."""
+        r = route("explain", self.settings, claude_ok=self.claude.available(), budget_ok=self.budget_ok())
+        if r.expert != "rules":
+            call_id = None
+            try:
+                text, call_id, cached = self._cached_call(
+                    "act", "explain", r.expert, self.explain_prompt,
+                    json.dumps(facts, ensure_ascii=False, default=str), EXPLAIN_SCHEMA,
+                    self.models["explain_max_tokens"], r.reason, 0)
+                explanation = json.loads(text)["explanation"].strip()
+                if not cached:
+                    self._set_outcome(call_id, "valid", None)
+                return explanation, r.expert
+            except (ModelUnavailable, ValueError, KeyError) as err:
+                if call_id:
+                    self._set_outcome(call_id, "retried", None)
+                r = type(r)("rules", f"{r.expert} failed ({str(err)[:80]})")
+        self._log_rules("act", "explain", r.reason, None, 0)
+        return facts["interpretation"] + " Check the source export before releasing.", "rules"
+
+
+EXPLAIN_SCHEMA = {
+    "type": "object",
+    "properties": {"explanation": {"type": "string"}},
+    "required": ["explanation"],
+    "additionalProperties": False,
+}

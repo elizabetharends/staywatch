@@ -116,7 +116,7 @@ def test_sql_log_records_placeholders_but_not_log_writes(settings, inbox):
     rows = query(settings, "SELECT * FROM sql_log")
     assert rows, "the duplicate check should be logged"
     for r in rows:
-        assert "?" in r["sql_text"]
+        assert r["sql_text"].count("?") == len(json.loads(r["params_json"]))   # every value is a placeholder
         assert not r["sql_text"].startswith(("INSERT INTO sql_log", "INSERT INTO run_log",
                                              "UPDATE run_log"))
         assert r["run_id"] and r["file_name"]
@@ -136,21 +136,21 @@ def test_injection_records_are_quarantined_with_incident(settings, inbox):
     settings["generator"]["injection_rate"] = 1.0
     write_imports(settings, 1)
     (result,) = scan_inbox(settings)          # no API key in tests, so the rules expert classifies
-    assert result["injections"] == result["records"]
+    assert result["injections"] == result["bookings_count"]     # duplicate rows count once
     assert result["valid"] == result["review"] == 0
-    assert len(query(settings, "SELECT * FROM quarantine_records")) == result["records"]
+    assert len(query(settings, "SELECT * FROM quarantine_records")) == result["bookings_count"]
     kinds = {r["kind"] for r in query(settings, "SELECT kind FROM incident_log")}
     assert kinds == {"injection"}
-    assert not query(settings, "SELECT * FROM staging_bookings")
+    assert not query(settings, "SELECT * FROM bookings")
 
 
 def test_landed_records_are_redacted_classified_and_staged(settings, inbox):
     settings["generator"]["injection_rate"] = 0.0
     write_imports(settings, 1)
     (result,) = scan_inbox(settings)
-    staged = query(settings, "SELECT * FROM staging_bookings")
+    staged = query(settings, "SELECT * FROM bookings")
     assert len(staged) == result["valid"] + result["review"] > 0
     steps = [r["step"] for r in query(settings, "SELECT step FROM run_log ORDER BY rowid")]
-    assert steps == ["detect", "land", "redact", "classify", "extract", "validate"]
+    assert steps == ["detect", "land", "redact", "classify", "extract", "validate", "load", "decide", "act"]
     for row in query(settings, "SELECT record_json FROM review_queue"):
         assert "@example.com" not in row["record_json"]          # no personal data in SQLite

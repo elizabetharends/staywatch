@@ -16,6 +16,7 @@ from pathlib import Path
 from tinydb import TinyDB
 
 from agent.db import Database, utc_now
+from agent.decide import act, analyze, decide, load
 from agent.experts import ModelRunner
 from agent.redact import redact
 from agent.reference import canonical_keys
@@ -111,20 +112,35 @@ def _json(value) -> str:
     return json.dumps(value, ensure_ascii=False, default=str)
 
 
-def process(records: list[dict], db: Database, runner: ModelRunner, settings: dict) -> dict:
-    """Redact, classify, extract and validate each landed record; stage the results."""
+def record_hash(record: dict) -> str:
+    return hashlib.sha256(json.dumps(record, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+
+
+def process(records: list[dict], sha: str, db: Database, runner: ModelRunner, settings: dict) -> dict:
+    """Everything after landing: redact, classify, extract, validate, load, decide, act, analyze."""
     runner.start_file()
+    landed_at = utc_now()
     received = datetime.now(timezone.utc).date()
     review_below = settings["models"]["review_confidence"]
 
-    log_id = db.start_step("redact", rows_in=len(records))
-    redacted = [redact(canonical_keys(r)) for r in records]
-    db.finish_step(log_id, "ok", f"{sum(n for _, n in redacted)} personal values masked before any model call",
-                   rows_out=len(redacted))
+    # Exact duplicate rows inside one file are one booking, counted once.
+    unique, seen = [], set()
+    for row_number, raw_record in enumerate(records, start=1):
+        h = record_hash(raw_record)
+        if h not in seen:
+            seen.add(h)
+            unique.append((row_number, h, raw_record))
+    bookings_count = len(unique)
 
-    log_id = db.start_step("classify", rows_in=len(redacted))
+    log_id = db.start_step("redact", sha256=sha, rows_in=len(records))
+    redacted = [(row_number, h, *redact(canonical_keys(r))) for row_number, h, r in unique]
+    db.finish_step(log_id, "ok", f"{sum(r[3] for r in redacted)} personal values masked before any model call; "
+                                 f"{len(records) - len(unique)} exact duplicate row(s) dropped",
+                   rows_out=len(redacted), rows_rejected=len(records) - len(unique))
+
+    log_id = db.start_step("classify", sha256=sha, rows_in=len(redacted))
     classified, injections, experts = [], 0, {}
-    for row_number, (record, pii) in enumerate(redacted, start=1):
+    for row_number, h, record, pii in redacted:
         result = runner.classify(record, pii)
         experts[result["expert"]] = experts.get(result["expert"], 0) + 1
         if result["injection"]:
@@ -134,15 +150,15 @@ def process(records: list[dict], db: Database, runner: ModelRunner, settings: di
             db.open_incident(f"inc_{uuid.uuid4().hex[:8]}", "injection",
                              f"{db.file_name} row {row_number}: record tries to give instructions; quarantined")
             continue
-        classified.append((row_number, record, pii, result))
+        classified.append((row_number, h, record, pii, result))
     db.finish_step(log_id, "warning" if injections else "ok",
                    f"experts {experts}; {injections} injection attempt(s) quarantined",
                    rows_out=len(classified), rows_rejected=injections)
 
-    log_id = db.start_step("extract", rows_in=len(classified))
+    log_id = db.start_step("extract", sha256=sha, rows_in=len(classified))
     outcomes = {"valid": 0, "review": 0, "quarantined": 0}
-    by_expert = {}
-    for row_number, record, pii, result in classified:
+    by_expert, booking_rows = {}, []
+    for row_number, h, record, pii, result in classified:
         fields, expert, status = runner.extract(record, received, pii)
         by_expert[expert] = by_expert.get(expert, 0) + 1
         if status.startswith("quarantined"):
@@ -157,9 +173,14 @@ def process(records: list[dict], db: Database, runner: ModelRunner, settings: di
             reasons.append(f"category confidence {result['confidence']:.2f} < {review_below}")
         status = "review" if reasons else "valid"
         outcomes[status] += 1
-        db.run_sql("load", "INSERT INTO staging_bookings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                   (db.run_id, db.file_name, row_number, result["category"], result["urgency"],
-                    result["confidence"], result["expert"], expert, _json(fields), status, utc_now()))
+        booking_rows.append({
+            "run_id": db.run_id, "file_name": db.file_name, "row_number": row_number, "record_hash": h,
+            **{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in fields.items()
+               if k != "confidence"},
+            "category": result["category"], "urgency": result["urgency"],
+            "category_confidence": result["confidence"], "classify_expert": result["expert"],
+            "extract_expert": expert, "status": status, "loaded_at": utc_now(),
+        })
         if reasons:
             db.run_sql("validate", "INSERT INTO review_queue VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
                        (db.run_id, db.file_name, row_number, "; ".join(reasons), _json(record),
@@ -167,12 +188,20 @@ def process(records: list[dict], db: Database, runner: ModelRunner, settings: di
     db.finish_step(log_id, "ok", f"experts {by_expert}", rows_out=len(classified) - outcomes["quarantined"],
                    rows_rejected=outcomes["quarantined"])
 
-    log_id = db.start_step("validate", rows_in=len(classified))
+    log_id = db.start_step("validate", sha256=sha, rows_in=len(classified))
     db.finish_step(log_id, "warning" if outcomes["quarantined"] or outcomes["review"] else "ok",
                    f"{outcomes['valid']} valid, {outcomes['review']} to review queue, "
                    f"{outcomes['quarantined']} quarantined (Pydantic + no invented values)",
                    rows_out=outcomes["valid"] + outcomes["review"], rows_rejected=outcomes["quarantined"])
-    return {**outcomes, "injections": injections, "tokens": runner.run_tokens}
+
+    counts = {**outcomes, "injections": injections}
+    load(db, sha, landed_at, bookings_count, booking_rows, counts)
+    decision = decide(db, settings, bookings_count)
+    status = act(db, runner, decision)
+    if status == "published":
+        analyze(db)
+    return {**counts, "bookings_count": bookings_count, "z": decision["result"], "status": status,
+            "tokens": runner.run_tokens}
 
 
 def ready_files(inbox: Path, min_age_seconds: float) -> list[Path]:
@@ -180,9 +209,11 @@ def ready_files(inbox: Path, min_age_seconds: float) -> list[Path]:
     if not inbox.exists():
         return []
     now = time.time()
-    return sorted(p for p in inbox.iterdir()
-                  if p.suffix in IMPORT_SUFFIXES and not p.name.startswith(".")
-                  and now - p.stat().st_mtime >= min_age_seconds)
+    ready = [p for p in inbox.iterdir()
+             if p.suffix in IMPORT_SUFFIXES and not p.name.startswith(".")
+             and now - p.stat().st_mtime >= min_age_seconds]
+    # Oldest first, so the time series stays in order (name sort would put "-10" before "-2")
+    return sorted(ready, key=lambda p: (p.stat().st_mtime_ns, p.name))
 
 
 def scan_inbox(settings: dict) -> list[dict]:
@@ -198,7 +229,7 @@ def scan_inbox(settings: dict) -> list[dict]:
             sha = detect(path, db, settings)
             records = land(path, sha, db, raw, settings) if sha else None
             outcome = "duplicate" if sha is None else ("landed" if records is not None else "quarantined")
-            summary = process(records, db, runner, settings) if records else {}
+            summary = process(records, sha, db, runner, settings) if records else {}
             results.append({"run_id": db.run_id, "file_name": path.name, "outcome": outcome,
                             "records": len(records or []), **summary})
     finally:

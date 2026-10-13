@@ -22,8 +22,10 @@ def scan_and_report(settings: dict) -> None:
     for r in scan_inbox(settings):
         detail = r["outcome"]
         if r["outcome"] == "landed":
-            detail = (f"{r['records']} records -> {r['valid']} valid, {r['review']} review, "
-                      f"{r['quarantined'] + r['injections']} quarantined, {r['tokens']} tokens")
+            z = "n/a" if r["z"] is None else f"{r['z']:+.2f}"
+            detail = (f"{r['records']} records ({r['bookings_count']} bookings) -> {r['valid']} valid, "
+                      f"{r['review']} review, {r['quarantined'] + r['injections']} quarantined; "
+                      f"z = {z} -> {r['status'].upper()}; {r['tokens']} tokens")
         print(f"[{datetime.now(timezone.utc):%H:%M:%S} UTC] {r['file_name']}: {detail} ({r['run_id']})",
               flush=True)
 

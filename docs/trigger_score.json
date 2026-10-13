@@ -1,0 +1,23 @@
+{
+  "TP": 7,
+  "FP": 7,
+  "FN": 0,
+  "TN": 66,
+  "precision": 0.5,
+  "interpretation": "Of 14 held imports, 7 were real seeded anomalies (precision 50%); of 7 seeded anomalies, 7 were caught (recall 100%).",
+  "misses": [],
+  "false_alarms": [
+    "staywatch_20261013-2244.json (z=-3.257)",
+    "staywatch_20261013-2246.json (z=-3.377)",
+    "staywatch_20261013-2248.json (z=-3.136)",
+    "staywatch_20261013-2301.csv (z=3.3)",
+    "staywatch_20261013-2336.json (z=3.348)",
+    "staywatch_20261013-2337.csv (z=3.348)",
+    "staywatch_20261013-2340.json (z=3.091)"
+  ],
+  "rule": {
+    "rule": "anomaly",
+    "z_threshold": 3.0,
+    "history_imports": 60
+  }
+}

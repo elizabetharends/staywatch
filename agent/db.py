@@ -67,13 +67,33 @@ CREATE TABLE IF NOT EXISTS quarantine_records (
   run_id TEXT, file_name TEXT, row_number INTEGER, reason TEXT,
   record_json TEXT, created_at TEXT
 );
--- Classified and extracted records, before Milestone 4 loads them into typed tables
-CREATE TABLE IF NOT EXISTS staging_bookings (
-  run_id TEXT, file_name TEXT, row_number INTEGER,
-  category TEXT, urgency TEXT, category_confidence REAL,
-  classify_expert TEXT, extract_expert TEXT,
-  fields_json TEXT, status TEXT, created_at TEXT
+-- Silver: one row per import file, with the forecast measure and the decision status
+CREATE TABLE IF NOT EXISTS imports (
+  run_id TEXT PRIMARY KEY, file_name TEXT, file_sha256 TEXT, landed_at TEXT,
+  bookings_count INTEGER,    -- distinct booking rows in the file (the forecast measure)
+  records_valid INTEGER, records_review INTEGER, records_quarantined INTEGER,
+  status TEXT,               -- loading, published, held, released, rejected
+  decided_by TEXT, decided_at TEXT
 );
+-- Silver: typed, validated bookings (valid or review)
+CREATE TABLE IF NOT EXISTS bookings (
+  run_id TEXT, file_name TEXT, row_number INTEGER, record_hash TEXT,
+  listing TEXT, region TEXT, channel TEXT, booked_on TEXT, check_in TEXT, nights INTEGER,
+  booking_value_usd REAL, average_daily_rate_usd REAL, booking_window_days INTEGER,
+  arrival_time TEXT, summary TEXT,
+  category TEXT, urgency TEXT, category_confidence REAL,
+  classify_expert TEXT, extract_expert TEXT, status TEXT, loaded_at TEXT
+);
+-- Gold: only imports that were published, or held and then released by a person
+DROP VIEW IF EXISTS gold_import_metrics;
+CREATE VIEW gold_import_metrics AS
+  SELECT rowid AS import_seq, run_id, file_name, landed_at, bookings_count, records_valid, records_review,
+         records_quarantined, status
+  FROM imports WHERE status IN ('published', 'released');
+DROP VIEW IF EXISTS gold_bookings;
+CREATE VIEW gold_bookings AS
+  SELECT b.* FROM bookings b JOIN imports i ON i.run_id = b.run_id
+  WHERE i.status IN ('published', 'released');
 """
 
 
@@ -144,6 +164,20 @@ class Database:
         self._write_log(
             f"INSERT INTO model_usage_log ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
             tuple(row.get(c) for c in columns),
+        )
+
+    def log_stats(self, step: str, result: dict) -> None:
+        self._write_log(
+            "INSERT INTO stats_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (self.run_id, step, result["method"], result["formula_latex"],
+             json.dumps(result["inputs"], ensure_ascii=False, default=str), result["result"],
+             result["threshold"], result["interpretation"], utc_now()),
+        )
+
+    def log_decision(self, rule: str, statistic, threshold, p_value, fired: bool, action: str) -> None:
+        self._write_log(
+            "INSERT INTO decision_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (self.run_id, rule, statistic, threshold, p_value, int(fired), action, utc_now()),
         )
 
     def open_incident(self, incident_id: str, kind: str, detail: str) -> None:

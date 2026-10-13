@@ -1,0 +1,26 @@
+{
+  "forecast": {
+    "method": "ETS forecast",
+    "formula_latex": "\\hat{y}_{t+h} \\pm 1.96\\,\\hat{\\sigma}_h",
+    "inputs": {
+      "n": 66,
+      "horizon": 10,
+      "seasonal_period": 30,
+      "\\hat{y}_{t+1}": 6.59,
+      "\\hat{\\sigma}_1": 0.42,
+      "interval_t+1": [
+        5.77,
+        7.41
+      ],
+      "backtest_points": 13,
+      "MAE": 0.917,
+      "MAE_naive": 0.538,
+      "MAPE": 12.3,
+      "MAPE_naive": 6.7
+    },
+    "result": 6.59,
+    "threshold": null,
+    "interpretation": "Next import: about 6.6 bookings (95% interval 5.8 to 7.4). On the last 13 imports held out, the model's average error was 0.92 bookings vs 0.54 for 'same as last import', so the model is NOT better than the naive forecast."
+  },
+  "regression": "<sqlite3.Row object at 0x10ed325c0>"
+}

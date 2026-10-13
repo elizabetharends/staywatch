@@ -3,6 +3,7 @@
 Usage:
     uv run python -m generator.generate --minutes 3
     uv run python -m generator.generate --minutes 1 --interval 0 --seed 42   # instant, repeatable
+    uv run python -m generator.generate --backfill 60 --seed 42   # 60 past imports, one minute apart, instantly
 
 Each import is logged to generator_log.csv, including whether it is a seeded anomaly,
 so the agent's trigger can be scored against the truth later.
@@ -13,7 +14,7 @@ import json
 import math
 import random
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from agent.settings import load_settings, resolve
@@ -124,19 +125,21 @@ def write_import(settings: dict, rng: random.Random, now: datetime | None = None
     return rows
 
 
-def run(minutes: int, interval: float, seed: int | None, settings: dict) -> None:
+def run(minutes: int, interval: float, seed: int | None, settings: dict, backfill: bool = False) -> None:
     rng = random.Random(seed)
     start, last_file = time.monotonic(), None
     inbox = resolve(settings["paths"]["inbox"])
+    first = datetime.now(timezone.utc) - timedelta(minutes=minutes - 1)
     for k in range(minutes):
-        for row in write_import(settings, rng, last_file=last_file):
+        when = first + timedelta(minutes=k) if backfill else None
+        for row in write_import(settings, rng, now=when, last_file=last_file):
             tag = f" (seeded {row['anomaly_kind']})" if row["anomaly_kind"] else ""
             tag = f" (renamed copy of {row['is_resend_of']})" if row["is_resend_of"] else tag
             print(f"[{datetime.now(timezone.utc):%H:%M:%S} UTC] wrote {row['file_name']}"
                   f" ({row['records_written'] or '-'} records){tag}", flush=True)
             if not row["is_resend_of"]:
                 last_file = inbox / row["file_name"]
-        if k < minutes - 1:
+        if k < minutes - 1 and not backfill:
             time.sleep(max(0.0, start + (k + 1) * interval - time.monotonic()))
 
 
@@ -149,8 +152,13 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=gen["interval_seconds"],
                         help="seconds between imports (default 60)")
     parser.add_argument("--seed", type=int, default=None, help="random seed for repeatable runs")
+    parser.add_argument("--backfill", type=int, default=None, metavar="N",
+                        help="write N past imports instantly, timestamped one minute apart up to now")
     args = parser.parse_args()
-    run(args.minutes, args.interval, args.seed, settings)
+    if args.backfill:
+        run(args.backfill, 0, args.seed, settings, backfill=True)
+    else:
+        run(args.minutes, args.interval, args.seed, settings)
 
 
 if __name__ == "__main__":
