@@ -20,8 +20,6 @@ from agent.settings import ROOT
 from agent import rules
 
 PROMPTS = ROOT / "prompts"
-EXTRACT_PROMPT = "extract_v1"
-CLASSIFY_PROMPT = "classify_claude_v1"
 CLASSIFY_FIELDS = ("listing", "guest_message", "host_note")
 
 
@@ -43,8 +41,9 @@ class ModelRunner:
         self.db, self.settings = db, settings
         self.models, self.budget = settings["models"], settings["budget"]
         self.claude = claude or ClaudeClient(settings)
-        self.prompts = {EXTRACT_PROMPT: _load_prompt(EXTRACT_PROMPT),
-                        CLASSIFY_PROMPT: _load_prompt(CLASSIFY_PROMPT)}
+        self.extract_prompt = settings["prompts"]["extract"]
+        self.classify_prompt = settings["prompts"]["classify"]
+        self.prompts = {name: _load_prompt(name) for name in (self.extract_prompt, self.classify_prompt)}
         self.run_tokens = 0
         self.daily_tokens = None
         self.budget_incident_open = False
@@ -128,7 +127,7 @@ class ModelRunner:
             call_id = None
             try:
                 text, call_id, cached = self._cached_call(
-                    "classify", "classify", r.expert, CLASSIFY_PROMPT, f"<record>\n{user}\n</record>",
+                    "classify", "classify", r.expert, self.classify_prompt, f"<record>\n{user}\n</record>",
                     CLASSIFICATION_SCHEMA, self.models["classify_max_tokens"], r.reason, pii)
                 result = Classification.model_validate_json(text).model_dump()
                 if not cached:
@@ -169,7 +168,7 @@ class ModelRunner:
             call_id = None
             try:
                 text, call_id, cached = self._cached_call(
-                    "extract", "escalate" if escalate else "extract", r.expert, EXTRACT_PROMPT, user,
+                    "extract", "escalate" if escalate else "extract", r.expert, self.extract_prompt, user,
                     EXTRACTION_SCHEMA, self.models["extract_max_tokens"], r.reason, pii)
                 fields = self._validate_extraction(record, text)
             except ModelUnavailable as err:

@@ -23,6 +23,10 @@ scan_seconds = 15          # how often the loop checks inbox/
 min_file_age_seconds = 2   # skip files younger than this (may still be being written)
 sql_log_max_text = 80      # long text values are shortened in sql_log
 
+[prompts]
+extract = "extract_v2"           # each change is a new file; re-score the gold set after
+classify = "classify_claude_v1"
+
 [models]
 kill_switch = false        # true = no model calls at all; rules clean everything
 jev_enabled = false        # turned off until the Jev key is accepted (HTTP 401 on 2026-10-13)

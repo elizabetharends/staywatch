@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent import rules  # noqa: E402
 from agent.db import Database  # noqa: E402
-from agent.experts import CLASSIFY_PROMPT, EXTRACT_PROMPT, ModelRunner  # noqa: E402
+from agent.experts import ModelRunner  # noqa: E402
 from agent.redact import redact  # noqa: E402
 from agent.reference import CATEGORIES, URGENCY_LEVELS, canonical_keys  # noqa: E402
 from agent.schemas import SOURCE_OF, Extraction  # noqa: E402
@@ -218,8 +218,7 @@ def main() -> None:
 
     out = GOLD / "results"
     out.mkdir(exist_ok=True)
-    meta = {"scored_at": stamp, "prompt_versions": {"extract": EXTRACT_PROMPT, "classify": CLASSIFY_PROMPT,
-                                                     "jev_questions": "jev_questions_v1"},
+    meta = {"scored_at": stamp, "prompt_versions": {**settings["prompts"], "jev_questions": "jev_questions_v1"},
             "models": {k: settings["models"][k] for k in ("extractor", "escalation", "jev_enabled")},
             "label_warning": warning, "pass_bar": PASS_BAR}
     (out / f"scores_{stamp}.json").write_text(json.dumps({**meta, "scores": summaries, "usage": usage},
