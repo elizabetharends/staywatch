@@ -1,0 +1,4 @@
+{
+  "note": "Real claude-haiku-5-5 extraction reply from the 2026-10-13 live demo (invented record).",
+  "text": "{\"listing\":\"Palm Court Villa\",\"region\":\"Cura\u00e7ao\",\"channel\":\"vrbo\",\"booked_on\":\"2026-10-13\",\"check_in\":\"2027-02-28\",\"nights\":10,\"booking_value_usd\":2768.63,\"average_daily_rate_usd\":276.86,\"booking_window_days\":138,\"arrival_time\":null,\"summary\":null,\"confidence\":\"high\"}"
+}

@@ -20,7 +20,10 @@ from agent.settings import load_settings
 
 def scan_and_report(settings: dict) -> None:
     for r in scan_inbox(settings):
-        detail = f"{r['records']} records" if r["outcome"] == "landed" else r["outcome"]
+        detail = r["outcome"]
+        if r["outcome"] == "landed":
+            detail = (f"{r['records']} records -> {r['valid']} valid, {r['review']} review, "
+                      f"{r['quarantined'] + r['injections']} quarantined, {r['tokens']} tokens")
         print(f"[{datetime.now(timezone.utc):%H:%M:%S} UTC] {r['file_name']}: {detail} ({r['run_id']})",
               flush=True)
 

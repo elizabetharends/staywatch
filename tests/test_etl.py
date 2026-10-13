@@ -130,3 +130,27 @@ def test_long_params_are_shortened_in_sql_log(tmp_path):
     (params,) = db.conn.execute("SELECT params_json FROM sql_log").fetchone()
     db.close()
     assert json.loads(params) == ["a" * 10 + "…"]
+
+
+def test_injection_records_are_quarantined_with_incident(settings, inbox):
+    settings["generator"]["injection_rate"] = 1.0
+    write_imports(settings, 1)
+    (result,) = scan_inbox(settings)          # no API key in tests, so the rules expert classifies
+    assert result["injections"] == result["records"]
+    assert result["valid"] == result["review"] == 0
+    assert len(query(settings, "SELECT * FROM quarantine_records")) == result["records"]
+    kinds = {r["kind"] for r in query(settings, "SELECT kind FROM incident_log")}
+    assert kinds == {"injection"}
+    assert not query(settings, "SELECT * FROM staging_bookings")
+
+
+def test_landed_records_are_redacted_classified_and_staged(settings, inbox):
+    settings["generator"]["injection_rate"] = 0.0
+    write_imports(settings, 1)
+    (result,) = scan_inbox(settings)
+    staged = query(settings, "SELECT * FROM staging_bookings")
+    assert len(staged) == result["valid"] + result["review"] > 0
+    steps = [r["step"] for r in query(settings, "SELECT step FROM run_log ORDER BY rowid")]
+    assert steps == ["detect", "land", "redact", "classify", "extract", "validate"]
+    for row in query(settings, "SELECT record_json FROM review_queue"):
+        assert "@example.com" not in row["record_json"]          # no personal data in SQLite

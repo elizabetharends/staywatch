@@ -5,7 +5,10 @@ description = "StayWatch: a governed data agent for short-term rental bookings (
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anthropic==1.13.0",
     "apscheduler==3.11.3",
+    "pydantic==2.14.1",
+    "python-dotenv==1.2.4",
     "tinydb==4.9.0",
 ]
 

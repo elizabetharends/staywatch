@@ -51,6 +51,29 @@ CREATE TABLE IF NOT EXISTS incident_log (
   decided_by TEXT, opened_at TEXT, closed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS run_log_sha ON run_log (file_sha256, step, status);
+
+-- Model answers cached by input hash, so a re-run costs nothing
+CREATE TABLE IF NOT EXISTS model_cache (
+  cache_key TEXT PRIMARY KEY, task TEXT, expert TEXT, prompt_version TEXT,
+  response_text TEXT, created_at TEXT
+);
+-- Records a person must look at (low confidence); nothing here is deleted automatically
+CREATE TABLE IF NOT EXISTS review_queue (
+  run_id TEXT, file_name TEXT, row_number INTEGER, reason TEXT,
+  record_json TEXT, result_json TEXT, status TEXT, created_at TEXT
+);
+-- Records held out of the pipeline (injection attempts, failed validation)
+CREATE TABLE IF NOT EXISTS quarantine_records (
+  run_id TEXT, file_name TEXT, row_number INTEGER, reason TEXT,
+  record_json TEXT, created_at TEXT
+);
+-- Classified and extracted records, before Milestone 4 loads them into typed tables
+CREATE TABLE IF NOT EXISTS staging_bookings (
+  run_id TEXT, file_name TEXT, row_number INTEGER,
+  category TEXT, urgency TEXT, category_confidence REAL,
+  classify_expert TEXT, extract_expert TEXT,
+  fields_json TEXT, status TEXT, created_at TEXT
+);
 """
 
 
@@ -111,6 +134,16 @@ class Database:
             "UPDATE run_log SET finished_at = ?, status = ?, message = ?,"
             " rows_in = COALESCE(?, rows_in), rows_out = ?, rows_rejected = ? WHERE rowid = ?",
             (utc_now(), status, message, rows_in, rows_out, rows_rejected, log_id),
+        )
+
+    def log_model_call(self, **row) -> None:
+        columns = ["call_id", "run_id", "step", "task", "expert", "route_reason", "prompt_version",
+                   "input_tokens", "output_tokens", "latency_ms", "confidence",
+                   "estimated_cost_usd", "pii_redacted", "outcome", "called_at"]
+        row = {"run_id": self.run_id, "called_at": utc_now(), **row}
+        self._write_log(
+            f"INSERT INTO model_usage_log ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+            tuple(row.get(c) for c in columns),
         )
 
     def open_incident(self, incident_id: str, kind: str, detail: str) -> None:

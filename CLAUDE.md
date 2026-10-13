@@ -23,7 +23,7 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 |---|---|---|---|
 | 1 | Repo, environment, data generator (one import per minute) | A new file lands every minute and its name is logged | **Done 2026-10-13** |
 | 2 | ETL loop: detect, hash, land in TinyDB, run log, SQL logging | A duplicate file is skipped and shown in the log | **Done 2026-10-13** |
-| 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | **Next** |
+| 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | **In progress**: 3a done 2026-10-13; 3b (Jev, gold set) next |
 | 4 | Clean into SQLite, statistics, forecast, trigger and action | The trigger fires on a seeded anomaly in a test | Not started |
 | 5 | Streamlit dashboard: live flow chart, step panels with SQL and formulas, MoE view | An import is held and released on screen with its file name, SQL and formula | Not started |
 | 6 | Cloud: GitHub Actions pipeline, data branch, Streamlit Community Cloud, Claude Routine | The public app updates every minute during a demo run | Not started |
@@ -43,6 +43,16 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - `agent/etl.py`: `scan_inbox()` → per file `detect()` (SHA-256; duplicate = hash already has a `land`/`ok` row → status `warning`, message `skipped: duplicate of X`, moved to `processed/duplicates/`) → `land()` (raw records into TinyDB table `raw_bookings` in `data/raw.json` with run_id, file_name, file_sha256, row_number; file to `processed/`; parse failure → `quarantine/` + `incident_log` kind `failure`). Milestone 3 hooks in after `land()`.
 - Files younger than `min_file_age_seconds` (2) are left for the next scan.
 
+## Milestone 3 facts
+
+- Split approved: **3a** = redact, router, Claude extraction + classification fallback, validation, cache, token caps, review queue, quarantine. **3b** = Jev client, gold set (student hand-labels category + urgency for 50 messages; structured truth from generator, student spot-checks 10), `scripts/evaluate.py`.
+- Packages: anthropic 1.13.0, pydantic 2.14.1, python-dotenv 1.2.4.
+- Models (config `[models]`): extractor `claude-haiku-5-5` (course text says Haiku 4.5; 5.5 chosen as current and 10x cheaper), escalation `claude-sonnet-5-5` with server-side refusal fallback. Effort `low`.
+- Jev: `POST https://www.jevai.org/api/v1/decisions`, `Authorization: Bearer`, body `{model: "typesafe-ai/jev", state, questions}`, reply `{code, message, data.answers}`; 32 KiB cap. Needs an honest User-Agent (Cloudflare 1010 otherwise). Probe `scripts/jev_probe.py` got **HTTP 401 invalid key** on 2026-10-13, so `jev_enabled = false`; student is checking the key at jevai.org/agent/keys. Response shape of `answers` still unconfirmed.
+- Anthropic key is **not workspace-scoped**: needs `ANTHROPIC_WORKSPACE_ID` in `.env` (sent as `anthropic-workspace-id` header). Setup errors (auth/400) stop Claude calls for the rest of the scan and fall back to rules; refusals are treated as record problems (escalate, then quarantine).
+- Tests: `tests/conftest.py` removes API keys and blocks real clients; `FakeClaude` in `tests/test_models.py` replays recorded answers.
+- Flow per landed file: redact → classify (injection → `quarantine_records` + incident) → extract (Haiku → Sonnet on low confidence/invalid/invented values → quarantine) → validate → `staging_bookings` (+ `review_queue` if low confidence).
+
 ## Generator facts (needed by later milestones)
 
 - Files: `inbox/staywatch_<YYYYMMDD-HHMM>.csv|json` (UTC), alternating CSV/JSON. Renamed byte-identical copies are named `..._resend.<ext>`.
@@ -58,3 +68,4 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - 2026-10-13: Step 1 answers collected, CLAUDE.md created.
 - 2026-10-13: Milestone 1 done. 7 generator tests pass; 3-minute demo run wrote 3 files. 
 - 2026-10-13: Milestone 2 done. 14 tests pass. Demo: renamed copy `staywatch_20261013-2243_resend.csv` skipped as duplicate of `staywatch_20261013-2243.csv`; live loop picked up files within 15 s. Next: plan Milestone 3 (read `references/models-moe.md`; student needs class Console API key in `.env`).
+- 2026-10-13: Milestone 3a done, 35 tests. Live demo (2 imports, 14 records): 10 valid, 3 review, 1 injection quarantined + incident; 1 Haiku→Sonnet escalation; ~38k tokens, ~$0.011; ~3.7 s per record sequentially. Findings for 3b/gold set: Claude null on "3.6 weeks" window (rules 25); rules wrongly read departure-flight time as arrival_time, Claude right. Empty messages now skip models (rules → general, conf 1.0). Next: Jev key fix, then 3b plan (gold set labeling sheet, evaluate.py, Jev client).

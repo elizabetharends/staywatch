@@ -16,9 +16,15 @@ def load_settings(config_path: Path | None = None) -> dict:
     for section, values in settings.items():
         for key, default in values.items():
             env_value = os.environ.get(f"STAYWATCH_{section}_{key}".upper())
-            if env_value is not None:
-                values[key] = type(default)(env_value)
+            if env_value is not None and not isinstance(default, dict):
+                values[key] = _convert(env_value, default)
     return settings
+
+
+def _convert(value: str, default):
+    if isinstance(default, bool):  # bool("false") would be True
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return type(default)(value)
 
 
 def resolve(path_value: str) -> Path:

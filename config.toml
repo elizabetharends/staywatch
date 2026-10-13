@@ -22,3 +22,36 @@ injection_rate = 0.03      # chance a record's guest message tries to give instr
 scan_seconds = 15          # how often the loop checks inbox/
 min_file_age_seconds = 2   # skip files younger than this (may still be being written)
 sql_log_max_text = 80      # long text values are shortened in sql_log
+
+[models]
+kill_switch = false        # true = no model calls at all; rules clean everything
+jev_enabled = false        # turned off until the Jev key is accepted (HTTP 401 on 2026-10-13)
+jev_model = "typesafe-ai/jev"
+jev_url = "https://www.jevai.org/api/v1/decisions"
+extractor = "claude-haiku-5-5"     # read model names from config: they change
+escalation = "claude-sonnet-5-5"
+review_confidence = 0.6    # category confidence below this goes to the review queue
+extract_max_tokens = 2048
+classify_max_tokens = 1024
+
+[models.effort]
+"claude-haiku-5-5" = "low"
+"claude-sonnet-5-5" = "low"
+
+[models.fallbacks]
+"claude-sonnet-5-5" = true   # server-side refusal fallback ("default" routing)
+
+# USD per million tokens, for estimated_cost_usd in model_usage_log
+[models.prices."claude-haiku-5-5"]
+input = 0.10
+output = 0.50
+[models.prices."claude-sonnet-5-5"]
+input = 2.00
+output = 10.00
+[models.prices."claude-haiku-4-5"]
+input = 1.00
+output = 5.00
+
+[budget]
+max_tokens_per_run = 60000     # per import file
+max_tokens_per_day = 600000    # across all imports in a UTC day

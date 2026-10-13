@@ -16,6 +16,9 @@ from pathlib import Path
 from tinydb import TinyDB
 
 from agent.db import Database, utc_now
+from agent.experts import ModelRunner
+from agent.redact import redact
+from agent.reference import canonical_keys
 from agent.settings import resolve
 
 IMPORT_SUFFIXES = {".csv", ".json"}
@@ -104,6 +107,74 @@ def land(path: Path, sha: str, db: Database, raw: TinyDB, settings: dict) -> lis
     return records
 
 
+def _json(value) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def process(records: list[dict], db: Database, runner: ModelRunner, settings: dict) -> dict:
+    """Redact, classify, extract and validate each landed record; stage the results."""
+    runner.start_file()
+    received = datetime.now(timezone.utc).date()
+    review_below = settings["models"]["review_confidence"]
+
+    log_id = db.start_step("redact", rows_in=len(records))
+    redacted = [redact(canonical_keys(r)) for r in records]
+    db.finish_step(log_id, "ok", f"{sum(n for _, n in redacted)} personal values masked before any model call",
+                   rows_out=len(redacted))
+
+    log_id = db.start_step("classify", rows_in=len(redacted))
+    classified, injections, experts = [], 0, {}
+    for row_number, (record, pii) in enumerate(redacted, start=1):
+        result = runner.classify(record, pii)
+        experts[result["expert"]] = experts.get(result["expert"], 0) + 1
+        if result["injection"]:
+            injections += 1
+            db.run_sql("classify", "INSERT INTO quarantine_records VALUES (?, ?, ?, ?, ?, ?)",
+                       (db.run_id, db.file_name, row_number, "injection attempt", _json(record), utc_now()))
+            db.open_incident(f"inc_{uuid.uuid4().hex[:8]}", "injection",
+                             f"{db.file_name} row {row_number}: record tries to give instructions; quarantined")
+            continue
+        classified.append((row_number, record, pii, result))
+    db.finish_step(log_id, "warning" if injections else "ok",
+                   f"experts {experts}; {injections} injection attempt(s) quarantined",
+                   rows_out=len(classified), rows_rejected=injections)
+
+    log_id = db.start_step("extract", rows_in=len(classified))
+    outcomes = {"valid": 0, "review": 0, "quarantined": 0}
+    by_expert = {}
+    for row_number, record, pii, result in classified:
+        fields, expert, status = runner.extract(record, received, pii)
+        by_expert[expert] = by_expert.get(expert, 0) + 1
+        if status.startswith("quarantined"):
+            outcomes["quarantined"] += 1
+            db.run_sql("validate", "INSERT INTO quarantine_records VALUES (?, ?, ?, ?, ?, ?)",
+                       (db.run_id, db.file_name, row_number, status, _json(record), utc_now()))
+            continue
+        reasons = []
+        if status == "review":
+            reasons.append("extraction confidence low after escalation")
+        if result["confidence"] < review_below:
+            reasons.append(f"category confidence {result['confidence']:.2f} < {review_below}")
+        status = "review" if reasons else "valid"
+        outcomes[status] += 1
+        db.run_sql("load", "INSERT INTO staging_bookings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (db.run_id, db.file_name, row_number, result["category"], result["urgency"],
+                    result["confidence"], result["expert"], expert, _json(fields), status, utc_now()))
+        if reasons:
+            db.run_sql("validate", "INSERT INTO review_queue VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                       (db.run_id, db.file_name, row_number, "; ".join(reasons), _json(record),
+                        _json({"classification": result, "fields": fields}), utc_now()))
+    db.finish_step(log_id, "ok", f"experts {by_expert}", rows_out=len(classified) - outcomes["quarantined"],
+                   rows_rejected=outcomes["quarantined"])
+
+    log_id = db.start_step("validate", rows_in=len(classified))
+    db.finish_step(log_id, "warning" if outcomes["quarantined"] or outcomes["review"] else "ok",
+                   f"{outcomes['valid']} valid, {outcomes['review']} to review queue, "
+                   f"{outcomes['quarantined']} quarantined (Pydantic + no invented values)",
+                   rows_out=outcomes["valid"] + outcomes["review"], rows_rejected=outcomes["quarantined"])
+    return {**outcomes, "injections": injections, "tokens": runner.run_tokens}
+
+
 def ready_files(inbox: Path, min_age_seconds: float) -> list[Path]:
     """Import files in name order, skipping any still being written."""
     if not inbox.exists():
@@ -119,6 +190,7 @@ def scan_inbox(settings: dict) -> list[dict]:
     agent = settings["agent"]
     db = Database(resolve(settings["paths"]["sqlite"]), agent["sql_log_max_text"])
     raw = TinyDB(resolve(settings["paths"]["tinydb"]), indent=1, ensure_ascii=False)
+    runner = ModelRunner(db, settings)
     results = []
     try:
         for path in ready_files(resolve(settings["paths"]["inbox"]), agent["min_file_age_seconds"]):
@@ -126,8 +198,9 @@ def scan_inbox(settings: dict) -> list[dict]:
             sha = detect(path, db, settings)
             records = land(path, sha, db, raw, settings) if sha else None
             outcome = "duplicate" if sha is None else ("landed" if records is not None else "quarantined")
+            summary = process(records, db, runner, settings) if records else {}
             results.append({"run_id": db.run_id, "file_name": path.name, "outcome": outcome,
-                            "records": len(records or [])})
+                            "records": len(records or []), **summary})
     finally:
         raw.close()
         db.close()
