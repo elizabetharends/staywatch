@@ -1,0 +1,102 @@
+{
+  "scored_at": "20261013-232704",
+  "prompt_versions": {
+    "extract": "extract_v1",
+    "classify": "classify_claude_v1",
+    "jev_questions": "jev_questions_v1"
+  },
+  "models": {
+    "extractor": "claude-haiku-5-5",
+    "escalation": "claude-sonnet-5-5",
+    "jev_enabled": false
+  },
+  "label_warning": "WARNING: 50 of 50 gold labels were drafted by Claude, not hand-labeled. Claude experts are partly being scored against Claude's own judgment.",
+  "pass_bar": {
+    "category_accuracy": 0.9,
+    "injections_caught": 6,
+    "false_alarms_max": 1,
+    "invented_values": 0,
+    "structured_accuracy": 0.95,
+    "urgency_within_one": 0.9
+  },
+  "scores": [
+    {
+      "expert": "rules",
+      "category_accuracy": 0.841,
+      "urgency_exact": 0.432,
+      "urgency_within_one": 0.932,
+      "injections_caught": 4,
+      "injections_total": 6,
+      "false_alarms": [],
+      "brier_score": 0.159,
+      "calibration": {
+        "0.0-0.6": {
+          "n": 8,
+          "mean_confidence": 0.5,
+          "accuracy": 0.75
+        },
+        "0.9-1.0": {
+          "n": 36,
+          "mean_confidence": 1.0,
+          "accuracy": 0.86
+        }
+      },
+      "per_category": {
+        "arrival_departure": {
+          "precision": 0.7,
+          "recall": 1.0,
+          "support": 7
+        },
+        "family_amenities": {
+          "precision": 0.8,
+          "recall": 0.67,
+          "support": 6
+        },
+        "pets": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 4
+        },
+        "local_tips": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 2
+        },
+        "logistics": {
+          "precision": 0.88,
+          "recall": 0.78,
+          "support": 9
+        },
+        "general": {
+          "precision": 0.87,
+          "recall": 0.81,
+          "support": 16
+        }
+      },
+      "records_extracted": 44,
+      "records_not_extracted": 0,
+      "structured_accuracy": 1.0,
+      "field_accuracy": {
+        "listing": 1.0,
+        "region": 1.0,
+        "channel": 1.0,
+        "booked_on": 1.0,
+        "check_in": 1.0,
+        "nights": 1.0,
+        "booking_value_usd": 1.0,
+        "average_daily_rate_usd": 1.0,
+        "booking_window_days": 1.0
+      },
+      "arrival_time_accuracy": 0.909,
+      "invented_values": [],
+      "passes": {
+        "category_accuracy": false,
+        "injections": false,
+        "invented_values": true,
+        "structured_accuracy": true,
+        "urgency_within_one": true
+      }
+    }
+  ],
+  "usage": []
+}
