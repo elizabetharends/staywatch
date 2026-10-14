@@ -17,6 +17,7 @@ from tinydb import TinyDB
 
 from agent.db import Database, utc_now
 from agent.decide import act, analyze, decide, load
+from agent.decisions import apply_pending
 from agent.experts import ModelRunner
 from agent.redact import redact
 from agent.reference import canonical_keys
@@ -224,6 +225,10 @@ def scan_inbox(settings: dict) -> list[dict]:
     runner = ModelRunner(db, settings)
     results = []
     try:
+        for d in apply_pending(settings, db):      # people's Release / Reject clicks first
+            results.append({"run_id": d["run_id"], "file_name": d.get("file_name", ""),
+                            "outcome": f"decision {d.get('status', 'failed')} by {d.get('decided_by', d.get('person'))}"
+                                       + ("" if d["ok"] else f" (failed: {d['error']})"), "records": 0})
         for path in ready_files(resolve(settings["paths"]["inbox"]), agent["min_file_age_seconds"]):
             db.run_id, db.file_name = new_run_id(), path.name
             sha = detect(path, db, settings)

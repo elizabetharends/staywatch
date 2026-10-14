@@ -25,7 +25,7 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 | 2 | ETL loop: detect, hash, land in TinyDB, run log, SQL logging | A duplicate file is skipped and shown in the log | **Done 2026-10-13** |
 | 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | **Done 2026-10-13 with caveats**: gold labels drafted by Claude (disclosed); Jev not yet working (401) |
 | 4 | Clean into SQLite, statistics, forecast, trigger and action | The trigger fires on a seeded anomaly in a test | **Done 2026-10-13** (threshold z > 3 chosen by student) |
-| 5 | Streamlit dashboard: live flow chart, step panels with SQL and formulas, MoE view | An import is held and released on screen with its file name, SQL and formula | **Next** |
+| 5 | Streamlit dashboard: live flow chart, step panels with SQL and formulas, MoE view | An import is held and released on screen with its file name, SQL and formula | **Built 2026-10-13**: held on screen verified; waiting for the student's Release click |
 | 6 | Cloud: GitHub Actions pipeline, data branch, Streamlit Community Cloud, Claude Routine | The public app updates every minute during a demo run | Not started |
 | 7 | Governance docs, prompt-injection test, 30-second Claude Motion overview, README, BINGO card | `scripts/check_bingo.py` passes on the README | Not started |
 
@@ -64,6 +64,15 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - Demo (80 imports, kill switch, seed 4): TP 7, FP 7, FN 0 (precision 50%, recall 100%). Simulation over 30 seeds x 80 imports: z>3 = 92% precision / 100% recall; z>4 = 100% / 91%. FPs come from trend + 30-import cycle that a flat rolling mean ignores. **Student decided 2026-10-13: keep z > 3** (favors recall: no bad data into gold; accepts ~8% false-alarm holds). Record in docs/ai-use-policy.md in Milestone 7.
 - Forecast (ETS, damped trend, seasonal 30 when n>=60) on 66 gold imports: MAE 0.92 vs naive 0.54 -> NOT better than naive. (An earlier "better" result was an artifact of scrambled ordering, fixed.) Regression: slope -0.56 USD/day, r -0.22, R^2 5%, p 1.5e-05, n 386.
 
+## Milestone 5 facts
+
+- Run: `uv run streamlit run dashboard/app.py` (localhost:8501; `.streamlit/config.toml` = localhost only, no usage stats). Pages live in `dashboard/views/` (NOT `pages/`: Streamlit auto-runs a `pages/` folder without app.py's sys.path setup).
+- Dashboard opens SQLite read-only. Release/Reject buttons call `agent/decisions.request_decision` -> JSON file in `data/decisions/`; the agent applies it at the start of each scan (`apply_pending`) -> `applied/` or `failed/`. In the cloud this becomes a workflow_dispatch call.
+- Flow chart: `dashboard/flow.build_dot` (pure, tested), three rows (rank=same), inside `st.fragment(run_every=5)`. Streamlit caches imported modules: restart the server after editing flow.py/common.py.
+- run_log timestamps now in milliseconds (step durations visible).
+- Generator `--seed-anomaly spike|drop` forces the first import to be an anomaly (demos).
+- Launch config for the built-in browser lives in `~/Downloads/DATC/Data/.claude/launch.json` (session's primary folder) and uses `uv --directory`.
+
 ## Generator facts (needed by later milestones)
 
 - Files: `inbox/staywatch_<YYYYMMDD-HHMM>.csv|json` (UTC), alternating CSV/JSON. Renamed byte-identical copies are named `..._resend.<ext>`.
@@ -87,3 +96,4 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - 2026-10-13: extract_v3 (nulls for blank sources and unit conversions do not lower confidence). Score `scores_20261013-233359.json`: structured 100%, arrival 100%, invented 0 (same as v2); Sonnet escalations 8 -> 5; extract cost ~$0.059 -> ~$0.043 per 50. 4 of 5 remaining escalations still have blank source fields. Kept v3. Still failing: category 86.4% (classify_claude_v2 next candidate).
 - 2026-10-13: classify_claude_v2 (tie-break rules a-d). Score `scores_20261013-233*` latest: category 86.4% -> 88.6% (still FAIL), Brier 0.107 -> 0.083, BUT urgency exact 79.5% -> 65.9% and regressions on standard rows: 3 wifi messages left logistics (rule d "set up in the unit" misread), early check-in urgency High -> Low (rule d "arrival time is information"), G46 -> general (rule c billing). Fixed 6 hard rows, all ones the rules were written after seeing (overfitting risk). Production traffic is almost all standard templates, so v2 is worse live: config kept on classify_claude_v1. Candidate v3: keep a-c, wifi explicitly logistics, drop "arrival time is information" wording, say tie-breaks never change urgency; needs fresh held-out hard records to prove it is not overfit.
 - 2026-10-13: Milestone 4 done, 47 tests. One live Sonnet explanation verified ($0.003). Student kept z > 3. Open: student should release/reject one held import themselves. Next: plan Milestone 5 (read references/dashboard.md).
+- 2026-10-13: Milestone 5 built, 53 tests. Live demo: seeded spike staywatch_20261013-2358.csv held (z = +13.13), Sonnet explanation shown, 3 real injections quarantined; ~53k tokens. Student to click Release on screen to finish the done-when.

@@ -4,6 +4,7 @@ Usage:
     uv run python -m generator.generate --minutes 3
     uv run python -m generator.generate --minutes 1 --interval 0 --seed 42   # instant, repeatable
     uv run python -m generator.generate --backfill 60 --seed 42   # 60 past imports, one minute apart, instantly
+    uv run python -m generator.generate --minutes 1 --seed-anomaly spike   # a guaranteed spike, for demos
 
 Each import is logged to generator_log.csv, including whether it is a seeded anomaly,
 so the agent's trigger can be scored against the truth later.
@@ -75,7 +76,7 @@ def append_log(log_path: Path, row: dict) -> None:
 
 
 def write_import(settings: dict, rng: random.Random, now: datetime | None = None,
-                 last_file: Path | None = None) -> list[dict]:
+                 last_file: Path | None = None, force_anomaly: str | None = None) -> list[dict]:
     """Writes one import (plus, sometimes, a renamed copy of an earlier file). Returns log rows."""
     gen = settings["generator"]
     inbox = resolve(settings["paths"]["inbox"])
@@ -87,9 +88,10 @@ def write_import(settings: dict, rng: random.Random, now: datetime | None = None
     fmt = "csv" if index % 2 == 0 else "json"
     expected, count = expected_bookings(index, rng, settings)
 
-    anomaly_kind = ""
-    if index >= WARMUP_IMPORTS and rng.random() < gen["anomaly_rate"]:
+    anomaly_kind = force_anomaly or ""
+    if not anomaly_kind and index >= WARMUP_IMPORTS and rng.random() < gen["anomaly_rate"]:
         anomaly_kind = rng.choice(["spike", "drop"])
+    if anomaly_kind:
         count = rng.randint(18, 24) if anomaly_kind == "spike" else rng.randint(1, 2)
 
     records = [make_booking(now.date(), rng, injection=rng.random() < gen["injection_rate"])
@@ -125,14 +127,16 @@ def write_import(settings: dict, rng: random.Random, now: datetime | None = None
     return rows
 
 
-def run(minutes: int, interval: float, seed: int | None, settings: dict, backfill: bool = False) -> None:
+def run(minutes: int, interval: float, seed: int | None, settings: dict, backfill: bool = False,
+        seed_anomaly: str | None = None) -> None:
     rng = random.Random(seed)
     start, last_file = time.monotonic(), None
     inbox = resolve(settings["paths"]["inbox"])
     first = datetime.now(timezone.utc) - timedelta(minutes=minutes - 1)
     for k in range(minutes):
         when = first + timedelta(minutes=k) if backfill else None
-        for row in write_import(settings, rng, now=when, last_file=last_file):
+        force = seed_anomaly if k == 0 else None
+        for row in write_import(settings, rng, now=when, last_file=last_file, force_anomaly=force):
             tag = f" (seeded {row['anomaly_kind']})" if row["anomaly_kind"] else ""
             tag = f" (renamed copy of {row['is_resend_of']})" if row["is_resend_of"] else tag
             print(f"[{datetime.now(timezone.utc):%H:%M:%S} UTC] wrote {row['file_name']}"
@@ -152,13 +156,15 @@ def main() -> None:
     parser.add_argument("--interval", type=float, default=gen["interval_seconds"],
                         help="seconds between imports (default 60)")
     parser.add_argument("--seed", type=int, default=None, help="random seed for repeatable runs")
+    parser.add_argument("--seed-anomaly", choices=["spike", "drop"], default=None,
+                        help="make the first import a seeded anomaly (for demos)")
     parser.add_argument("--backfill", type=int, default=None, metavar="N",
                         help="write N past imports instantly, timestamped one minute apart up to now")
     args = parser.parse_args()
     if args.backfill:
         run(args.backfill, 0, args.seed, settings, backfill=True)
     else:
-        run(args.minutes, args.interval, args.seed, settings)
+        run(args.minutes, args.interval, args.seed, settings, seed_anomaly=args.seed_anomaly)
 
 
 if __name__ == "__main__":

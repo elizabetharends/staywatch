@@ -12,6 +12,7 @@ dependencies = [
     "pydantic==2.14.1",
     "python-dotenv==1.2.4",
     "statsmodels==0.15.0",
+    "streamlit==1.65.0",
     "tinydb==4.9.0",
 ]
 

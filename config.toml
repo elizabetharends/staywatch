@@ -7,6 +7,7 @@ processed = "processed"
 quarantine = "quarantine"
 sqlite = "data/analytics.sqlite"
 tinydb = "data/raw.json"
+decisions = "data/decisions"   # Release/Reject requests from the dashboard
 
 [generator]
 interval_seconds = 60      # one import per minute

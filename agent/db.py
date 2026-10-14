@@ -98,7 +98,7 @@ CREATE VIEW gold_bookings AS
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
 class Database:
