@@ -40,7 +40,7 @@ jobs:
       - name: Check out the data and requests branches
         run: |
           if git fetch origin data:data 2>/dev/null; then git worktree add state data
-          else git worktree add --orphan -b data state; fi
+          else git worktree add --detach state && git -C state checkout -q --orphan data && git -C state rm -rfq .; fi
           if git fetch origin requests:requests 2>/dev/null; then git worktree add requests requests
           else mkdir requests; fi
 

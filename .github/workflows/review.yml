@@ -39,7 +39,7 @@ jobs:
           git config --global user.name "staywatch-review"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           if git fetch origin requests:requests 2>/dev/null; then git worktree add requests requests
-          else git worktree add --orphan -b requests requests; fi
+          else git worktree add --detach requests && git -C requests checkout -q --orphan requests && git -C requests rm -rfq .; fi
           python3 scripts/cloud_request.py requests
           cd requests
           git add -A
