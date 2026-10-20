@@ -1,0 +1,53 @@
+# Runs the StayWatch agent once a minute inside one job, then commits state to the `data` branch.
+# Start it from the Actions tab: pipeline -> Run workflow.
+name: pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "How many minutes to run (one import per minute, max 45)"
+        required: true
+        default: "30"
+  # Optional: one short run each hour between demos. Uses shared credits: leave off unless needed.
+  # schedule:
+  #   - cron: "0 * * * *"
+
+permissions:
+  contents: write   # lets the job push to the data branch with GITHUB_TOKEN
+
+concurrency:
+  group: pipeline
+  cancel-in-progress: false   # never let two runs write the data branch at once
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      MINUTES: ${{ inputs.minutes || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git for commits
+        run: |
+          git config --global user.name "staywatch-pipeline"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check out the data and requests branches
+        run: |
+          if git fetch origin data:data 2>/dev/null; then git worktree add state data
+          else git worktree add --orphan -b data state; fi
+          if git fetch origin requests:requests 2>/dev/null; then git worktree add requests requests
+          else mkdir requests; fi
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run the agent
+        run: uv run python -m agent.cloud_loop --minutes "$MINUTES" --state state/ --requests requests/

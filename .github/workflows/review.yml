@@ -1,0 +1,67 @@
+# A person's Release / Reject decision from the cloud dashboard.
+# Job 1 records the request on the `requests` branch (append-only).
+# Job 2 applies every waiting request to the `data` branch with the agent's own code.
+name: review
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "run_id of the held import"
+        required: true
+      decision:
+        description: "released or rejected"
+        required: true
+        type: choice
+        options: [released, rejected]
+      reviewer:
+        description: "Name of the person deciding"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: review-requests
+      cancel-in-progress: false
+    env:   # inputs go through env vars, never straight into a shell command
+      RUN_ID: ${{ inputs.run_id }}
+      DECISION: ${{ inputs.decision }}
+      REVIEWER: ${{ inputs.reviewer }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record the request
+        run: |
+          git config --global user.name "staywatch-review"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if git fetch origin requests:requests 2>/dev/null; then git worktree add requests requests
+          else git worktree add --orphan -b requests requests; fi
+          python3 scripts/cloud_request.py requests
+          cd requests
+          git add -A
+          git commit -m "review request"
+          for i in 1 2 3; do git push origin HEAD:requests && break; git pull --rebase origin requests; done
+
+  apply:
+    needs: record
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: pipeline          # waits for a running pipeline; that run also picks the request up within a minute
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out branches
+        run: |
+          git config --global user.name "staywatch-review"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin data:data && git worktree add state data
+          git fetch origin requests:requests && git worktree add requests requests
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Apply waiting requests
+        run: uv run python -m agent.cloud_loop --minutes 0 --state state/ --requests requests/

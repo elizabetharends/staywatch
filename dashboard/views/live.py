@@ -4,7 +4,8 @@ import pandas as pd
 import streamlit as st
 
 from agent.decisions import pending_requests, request_decision
-from dashboard.common import (SETTINGS, STEP_INFO, database_ready, query, show_sql, show_stat)
+from dashboard.common import (CLOUD, SETTINGS, STEP_INFO, database_ready, dispatch_review, passcode_ok, query,
+                              show_sql, show_stat)
 from dashboard.flow import build_dot
 
 st.title("StayWatch: live run")
@@ -21,7 +22,8 @@ def held_banner():
                  " WHERE i.status = 'held' ORDER BY i.rowid DESC")
     if held.empty:
         return
-    pending = {p["run_id"]: p for p in pending_requests(SETTINGS)}
+    pending = {p["run_id"]: p for p in pending_requests(SETTINGS)} if not CLOUD else \
+        st.session_state.setdefault("cloud_requests", {})
     st.error(f"⚠️ **{len(held)} import(s) held by the anomaly trigger.** A person must release or reject each one.")
     with st.container(border=True):
         options = {f"{h.file_name} · {h.bookings_count} bookings · {h.run_id}": h for h in held.itertuples()}
@@ -34,15 +36,32 @@ def held_banner():
         st.caption(f"Explanation by {detail['explained_by']} · run {h.run_id}")
         if h.run_id in pending:
             p = pending[h.run_id]
-            st.info(f"{p['decision'].capitalize()} requested by {p['person']} at {p['requested_at']}; "
-                    "the agent applies it on its next scan (within 15 s).")
+            where = ("the review workflow applies it on the data branch in about 1-2 minutes" if CLOUD
+                     else "the agent applies it on its next scan (within 15 s)")
+            st.info(f"{p['decision'].capitalize()} requested by {p['person']} at {p['requested_at']}; {where}.")
             return
+        allowed = True
+        if CLOUD:
+            code = st.text_input("Reviewer passcode", type="password", key="passcode",
+                                 help="Visitors can watch; only the reviewer can release or reject.")
+            allowed = passcode_ok(code)
+            if code and not allowed:
+                st.warning("Wrong passcode.")
         name_col, a, b = st.columns([3, 1, 1], vertical_alignment="bottom")
         name = name_col.text_input("Your name (recorded with the decision)", key="reviewer")
         for col, label, decision in ((a, "Release", "released"), (b, "Reject", "rejected")):
-            if col.button(label, key=f"{decision}_{h.run_id}", disabled=not name.strip(), width="stretch",
-                          type="primary" if decision == "released" else "secondary"):
-                request_decision(SETTINGS, h.run_id, decision, name)
+            if col.button(label, key=f"{decision}_{h.run_id}", disabled=not (name.strip() and allowed),
+                          width="stretch", type="primary" if decision == "released" else "secondary"):
+                if CLOUD:
+                    ok, message = dispatch_review(h.run_id, decision, name)
+                    if not ok:
+                        st.error(f"Could not start the review workflow: {message}")
+                        return
+                    from datetime import datetime, timezone
+                    pending[h.run_id] = {"decision": decision, "person": name.strip(),
+                                         "requested_at": datetime.now(timezone.utc).strftime("%H:%M:%S UTC")}
+                else:
+                    request_decision(SETTINGS, h.run_id, decision, name)
                 st.rerun(scope="fragment")
 
 
@@ -64,6 +83,13 @@ def live(choice: str):
     steps_df = query("SELECT rowid, * FROM run_log WHERE run_id = ? ORDER BY rowid", (run_id,))
     file_name = steps_df.file_name.dropna().iloc[0] if not steps_df.empty else ""
     steps = {r["step"]: r for r in steps_df.to_dict("records")}   # last row per step wins
+    if CLOUD:
+        # Data arrives once a minute, so replay the finished run step by step from its log rows.
+        order = list(steps)
+        key = f"replay_{run_id}"
+        shown = st.session_state.get(key, 0) % (len(order) + 3) + 1
+        st.session_state[key] = shown
+        steps = dict(list(steps.items())[:min(shown, len(order))])
     usage = query("SELECT * FROM model_usage_log WHERE run_id = ? ORDER BY rowid", (run_id,))
     decision = query("SELECT * FROM decision_log WHERE run_id = ?", (run_id,))
     imp = query("SELECT * FROM imports WHERE run_id = ?", (run_id,))
@@ -77,9 +103,14 @@ def live(choice: str):
     c3.metric("Status", imp.status[0].upper() if not imp.empty else steps_df.status.iloc[-1].upper())
     c4.metric("Last step finished", f"{age:.0f} s ago" if age is not None else "running")
 
-    st.graphviz_chart(build_dot(steps, usage.to_dict("records"),
-                                decision.to_dict("records")[0] if not decision.empty else None,
-                                imp.to_dict("records")[0] if not imp.empty else None, file_name),
+    finished = "act" in steps or not CLOUD
+    if CLOUD:
+        st.caption(f"▶ Replay of the latest cloud run (step {len(steps)} of {len(steps_df.step.unique())}), "
+                   "rebuilt from its logged timestamps. The pipeline pushes new data about once a minute.")
+    shown_usage = usage[usage.step.isin([s if s != "route" else "classify" for s in steps])] if CLOUD else usage
+    st.graphviz_chart(build_dot(steps, shown_usage.to_dict("records"),
+                                decision.to_dict("records")[0] if not decision.empty and "decide" in steps else None,
+                                imp.to_dict("records")[0] if not imp.empty and finished else None, file_name),
                       width="stretch")
     st.caption("Grey waiting · blue running · green done · amber held or warning · red failed. "
                "Dashed arrow: branch not taken. Numbers on arrows: rows passed on.")

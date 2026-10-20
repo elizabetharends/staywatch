@@ -1,6 +1,16 @@
-"""Shared helpers for the dashboard pages: read-only queries, formatting, formulas."""
+"""Shared helpers for the dashboard pages: read-only queries, formatting, formulas.
+
+Local mode reads data/analytics.sqlite. Cloud mode (Streamlit Community Cloud, when the
+GH_DATA_TOKEN secret exists) downloads the snapshot the pipeline pushed to the `data`
+branch, through the GitHub contents API, and opens it immutable (read-only, no locks).
+"""
+import hashlib
+import hmac
 import json
 import sqlite3
+import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +20,43 @@ from agent.settings import ROOT, load_settings, resolve
 
 SETTINGS = load_settings()
 DB_PATH = resolve(SETTINGS["paths"]["sqlite"])
+
+
+def _secret(name: str):
+    try:
+        return st.secrets[name]
+    except Exception:          # no secrets file locally
+        return None
+
+
+CLOUD = bool(_secret("GH_DATA_TOKEN"))
+REPO = _secret("GH_REPO")      # "owner/staywatch"
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _download(path: str) -> bytes | None:
+    """GitHub contents API, raw media type. Avoids raw.githubusercontent.com, which caches for minutes."""
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}/contents/{path}?ref=data",
+        headers={"Authorization": f"Bearer {_secret('GH_DATA_TOKEN')}", "Accept": "application/vnd.github.raw+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "staywatch-dashboard"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.read()
+    except urllib.error.URLError:
+        return None
+
+
+def db_path() -> Path | None:
+    if not CLOUD:
+        return DB_PATH if DB_PATH.exists() else None
+    data = _download("analytics.sqlite")
+    if not data:
+        return None
+    path = Path(tempfile.gettempdir()) / f"staywatch_{hashlib.sha256(data).hexdigest()[:12]}.sqlite"
+    if not path.exists():
+        path.write_bytes(data)
+    return path
 
 STEP_INFO = {
     "detect": "Finds the new file, records its name, size and SHA-256 fingerprint, and skips content already seen.",
@@ -27,25 +74,52 @@ STEP_INFO = {
 
 def connect() -> sqlite3.Connection:
     """Read-only: only the agent writes to the database."""
-    conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=5)
+    path = db_path() if CLOUD else DB_PATH
+    conn = sqlite3.connect(f"file:{path}?{'immutable=1' if CLOUD else 'mode=ro'}", uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 @st.cache_data(ttl=5, show_spinner=False)
 def query(sql: str, params: tuple = ()) -> pd.DataFrame:
-    if not DB_PATH.exists():
+    if (db_path() if CLOUD else (DB_PATH if DB_PATH.exists() else None)) is None:
         return pd.DataFrame()
     with connect() as conn:
         return pd.read_sql_query(sql, conn, params=params)
 
 
 def database_ready() -> bool:
-    if not DB_PATH.exists():
+    if CLOUD and db_path() is None:
+        st.info("No data on the `data` branch yet. Start a run: GitHub → Actions → pipeline → Run workflow.")
+        return False
+    if not CLOUD and not DB_PATH.exists():
         st.info("No data yet. Start the agent: `uv run python -m agent.run` and the generator: "
                 "`uv run python -m generator.generate`.")
         return False
     return True
+
+
+def passcode_ok(entered: str) -> bool:
+    """Cloud only: visitors can watch, only the reviewer can decide."""
+    expected = _secret("REVIEWER_PASSCODE")
+    return bool(expected) and hmac.compare_digest(entered.encode(), str(expected).encode())
+
+
+def dispatch_review(run_id: str, decision: str, person: str) -> tuple[bool, str]:
+    """Cloud only: starts .github/workflows/review.yml, which applies the decision on the data branch."""
+    body = json.dumps({"ref": "main", "inputs": {"run_id": run_id, "decision": decision,
+                                                 "reviewer": person.strip()}}).encode()
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}/actions/workflows/review.yml/dispatches", data=body, method="POST",
+        headers={"Authorization": f"Bearer {_secret('GH_REVIEW_TOKEN')}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "staywatch-dashboard"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.status == 204, "review workflow started"
+    except urllib.error.HTTPError as err:
+        return False, f"GitHub said HTTP {err.code}"
+    except urllib.error.URLError:
+        return False, "could not reach GitHub"
 
 
 def show_sql(rows: pd.DataFrame, limit: int = 12) -> None:
@@ -100,5 +174,11 @@ def latest_scores() -> list[dict]:
 
 
 def generator_truth() -> pd.DataFrame:
+    if CLOUD:
+        data = _download("generator_log.csv")
+        if not data:
+            return pd.DataFrame()
+        import io
+        return pd.read_csv(io.BytesIO(data))
     path = resolve(SETTINGS["paths"]["generator_log"])
     return pd.read_csv(path) if Path(path).exists() else pd.DataFrame()
