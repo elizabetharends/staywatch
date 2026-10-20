@@ -26,7 +26,7 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 | 3 | Expert models: MoE router, Jev classification, Claude extraction, review queue, gold set | 50 hand-labeled records scored; model usage logged | **Done 2026-10-13 with caveats**: gold labels drafted by Claude (disclosed); Jev not yet working (401) |
 | 4 | Clean into SQLite, statistics, forecast, trigger and action | The trigger fires on a seeded anomaly in a test | **Done 2026-10-13** (threshold z > 3 chosen by student) |
 | 5 | Streamlit dashboard: live flow chart, step panels with SQL and formulas, MoE view | An import is held and released on screen with its file name, SQL and formula | **Done 2026-10-20** |
-| 6 | Cloud: GitHub Actions pipeline, data branch, Streamlit Community Cloud, Claude Routine | The public app updates every minute during a demo run | **Next** |
+| 6 | Cloud: GitHub Actions pipeline, data branch, Streamlit Community Cloud, Claude Routine | The public app updates every minute during a demo run | **In progress**: code + local rehearsal done; waiting for GitHub repo/secrets/Streamlit setup |
 | 7 | Governance docs, prompt-injection test, 30-second Claude Motion overview, README, BINGO card | `scripts/check_bingo.py` passes on the README | Not started |
 
 ## Environment notes
@@ -73,6 +73,16 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - Generator `--seed-anomaly spike|drop` forces the first import to be an anomaly (demos).
 - Launch config for the built-in browser lives in `~/Downloads/DATC/Data/.claude/launch.json` (session's primary folder) and uses `uv --directory`.
 
+## Milestone 6 facts
+
+- `agent/cloud_loop.py --minutes N --state state/ --requests requests/` (max 45; `--minutes 0` = apply reviews + push only; `--no-push` for local tests). State paths point at the `data` worktree; inbox/processed live in a temp dir (never committed). WAL is checkpointed before each commit; `.gitignore` in data branch excludes -wal/-shm.
+- `data` branch: one commit deep (amend + force-push HEAD:data). `requests` branch: append-only review requests written by review.yml; applied ones tracked in table `applied_requests` (idempotent).
+- Workflows: pipeline.yml (workflow_dispatch minutes, concurrency group pipeline), review.yml (record job -> requests branch with inputs via env + `scripts/cloud_request.py` validation; apply job in group pipeline), tests.yml. Orphan branches created with `worktree add --detach` + `checkout --orphan` (old git lacks `worktree add --orphan`).
+- Dashboard cloud mode when Streamlit secret `GH_DATA_TOKEN` exists: downloads analytics.sqlite + generator_log.csv via contents API (raw media type, cache 30 s), opens `immutable=1`; Live chart = labeled replay; Release/Reject need `REVIEWER_PASSCODE` and call review.yml via `GH_REVIEW_TOKEN`. Secrets: GH_DATA_TOKEN, GH_REVIEW_TOKEN, GH_REPO, REVIEWER_PASSCODE.
+- `requirements.txt` from `uv export --format requirements-txt --no-dev --no-hashes` (regenerate after dependency changes).
+- Rehearsed locally against a bare repo (2 minutes + one review): branches and pushes behave as designed.
+- Student chose: rewrite commit author to GitHub no-reply before first push; Claude pushes (ask before the first public push).
+
 ## Generator facts (needed by later milestones)
 
 - Files: `inbox/staywatch_<YYYYMMDD-HHMM>.csv|json` (UTC), alternating CSV/JSON. Renamed byte-identical copies are named `..._resend.<ext>`.
@@ -98,3 +108,4 @@ Simulated data only. The real Airbnb exports in `~/Downloads/DATC/Data` are **no
 - 2026-10-13: Milestone 4 done, 47 tests. One live Sonnet explanation verified ($0.003). Student kept z > 3. Open: student should release/reject one held import themselves. Next: plan Milestone 5 (read references/dashboard.md).
 - 2026-10-13: Milestone 5 built, 53 tests. Live demo: seeded spike staywatch_20261013-2358.csv held (z = +13.13), Sonnet explanation shown, 3 real injections quarantined; ~53k tokens. Student to click Release on screen to finish the done-when.
 - 2026-10-20: Milestone 5 done. Student clicked Release on staywatch_20261013-2358.csv; agent (one `--once` pass, loop was not running) applied it: imports + trigger incident released by Elizabeth, 16 rows now in gold_bookings, chart shows 'released by Elizabeth'. Note: agent `--minutes` counts awake time only (monotonic clock; Mac sleep). 14 older demo holds still open. Next: plan Milestone 6 (read references/cloud.md).
+- 2026-10-20: Milestone 6 code done, 61 tests, rehearsed against a local bare repo. Next: student creates the GitHub repo and gives username + no-reply email; rewrite authors; push.
