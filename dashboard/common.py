@@ -34,23 +34,38 @@ REPO = _secret("GH_REPO")      # "owner/staywatch"
 
 
 @st.cache_data(ttl=30, show_spinner=False)
-def _download(path: str) -> bytes | None:
-    """GitHub contents API, raw media type. Avoids raw.githubusercontent.com, which caches for minutes."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{REPO}/contents/{path}?ref=data",
-        headers={"Authorization": f"Bearer {_secret('GH_DATA_TOKEN')}", "Accept": "application/vnd.github.raw+json",
-                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "staywatch-dashboard"})
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return response.read()
-    except urllib.error.URLError:
-        return None
+def _download(path: str) -> tuple[bytes | None, str]:
+    """GitHub contents API, raw media type. Avoids raw.githubusercontent.com, which caches for minutes.
+    Returns (content, problem). Tries the token first; the repo is public, so it falls back to an
+    unauthenticated request (60 per hour per IP) and reports what went wrong with the token."""
+    problems = []
+    token = _secret("GH_DATA_TOKEN")
+    for auth in ([f"Bearer {token}"] if token else []) + [None]:
+        headers = {"Accept": "application/vnd.github.raw+json", "X-GitHub-Api-Version": "2022-11-28",
+                   "User-Agent": "staywatch-dashboard"}
+        if auth:
+            headers["Authorization"] = auth
+        request = urllib.request.Request(f"https://api.github.com/repos/{REPO}/contents/{path}?ref=data",
+                                         headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                note = "; ".join(problems)
+                return response.read(), (f"{note}; downloaded without the token instead" if note else "")
+        except urllib.error.HTTPError as err:
+            problems.append(f"{'with' if auth else 'without'} GH_DATA_TOKEN: GitHub HTTP {err.code}")
+        except urllib.error.URLError as err:
+            problems.append(f"could not reach GitHub ({err.reason})")
+    return None, "; ".join(problems)
+
+
+def data_problem() -> str:
+    return _download("analytics.sqlite")[1] if CLOUD else ""
 
 
 def db_path() -> Path | None:
     if not CLOUD:
         return DB_PATH if DB_PATH.exists() else None
-    data = _download("analytics.sqlite")
+    data, _ = _download("analytics.sqlite")
     if not data:
         return None
     path = Path(tempfile.gettempdir()) / f"staywatch_{hashlib.sha256(data).hexdigest()[:12]}.sqlite"
@@ -91,7 +106,10 @@ def query(sql: str, params: tuple = ()) -> pd.DataFrame:
 def database_ready() -> bool:
     if CLOUD and db_path() is None:
         st.info("No data on the `data` branch yet. Start a run: GitHub → Actions → pipeline → Run workflow.")
+        st.caption(f"Download problem: {data_problem() or 'none'} · repo secret GH_REPO = `{REPO}`")
         return False
+    if CLOUD and data_problem():
+        st.warning(f"Data token problem: {data_problem()}. Check GH_DATA_TOKEN in the app's secrets.")
     if not CLOUD and not DB_PATH.exists():
         st.info("No data yet. Start the agent: `uv run python -m agent.run` and the generator: "
                 "`uv run python -m generator.generate`.")
@@ -175,7 +193,7 @@ def latest_scores() -> list[dict]:
 
 def generator_truth() -> pd.DataFrame:
     if CLOUD:
-        data = _download("generator_log.csv")
+        data, _ = _download("generator_log.csv")
         if not data:
             return pd.DataFrame()
         import io
