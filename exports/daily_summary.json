@@ -1,0 +1,91 @@
+{
+  "date": "2026-11-25",
+  "generated_at": "2026-11-25T01:11:47+00:00",
+  "imports_by_status": [
+    {
+      "status": "held",
+      "n": 2,
+      "bookings": 20
+    },
+    {
+      "status": "published",
+      "n": 28,
+      "bookings": 184
+    }
+  ],
+  "held_imports": [
+    {
+      "file_name": "staywatch_20261125-0057.json",
+      "bookings_count": 2,
+      "status": "held",
+      "decided_by": null,
+      "decided_at": null
+    },
+    {
+      "file_name": "staywatch_20261125-0107.json",
+      "bookings_count": 18,
+      "status": "held",
+      "decided_by": null,
+      "decided_at": null
+    }
+  ],
+  "incidents": [
+    {
+      "kind": "injection",
+      "status": "open",
+      "n": 3
+    },
+    {
+      "kind": "trigger",
+      "status": "open",
+      "n": 2
+    }
+  ],
+  "model_usage": [
+    {
+      "expert": "rules",
+      "task": "classify",
+      "calls": 204,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "avg_latency_ms": 0.0
+    },
+    {
+      "expert": "rules",
+      "task": "explain",
+      "calls": 2,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "avg_latency_ms": 0.0
+    },
+    {
+      "expert": "rules",
+      "task": "extract",
+      "calls": 201,
+      "tokens": 0,
+      "cost_usd": 0.0,
+      "avg_latency_ms": 0.0
+    }
+  ],
+  "tokens_today": 0,
+  "token_budget_per_day": 600000,
+  "over_budget": false,
+  "kill_switch": false,
+  "jev_enabled": false,
+  "trigger_rule": {
+    "rule": "anomaly",
+    "z_threshold": 3.0,
+    "history_imports": 60
+  },
+  "forecast_check": {
+    "forecast": 6.11,
+    "interval": [
+      4.66,
+      7.55
+    ],
+    "actual": 6,
+    "inside_interval": true,
+    "beats_naive_in_backtest": false
+  },
+  "open_review_items": 10
+}
